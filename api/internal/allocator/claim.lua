@@ -11,9 +11,9 @@ if not seats_left or tonumber(seats_left) <= 0 then
     return "sold_out"
 end
 
-local claim_token = args[1]
-local random_val = tonumber(args[2])
-local trust_score = tonumber(args[3])
+local claim_token = ARGV[1]
+local random_val = tonumber(ARGV[2])
+local trust_score = tonumber(ARGV[3])
 
 if redis.call('sismember', 'seats:claimed', claim_token) == 1 then
     return "duplicate_claim"

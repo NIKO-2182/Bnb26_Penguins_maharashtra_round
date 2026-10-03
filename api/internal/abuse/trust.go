@@ -31,7 +31,6 @@ func (tm *TrustManager) GetTrustScore(ctx context.Context, userID string) float6
 }
 
 func (tm *TrustManager) RecordInteraction(ctx context.Context, userID string, success bool) {
-	score, _ := tm.rdb.Client.Get(ctx, "trust:"+userID).Int64()
 	if success {
 		tm.rdb.Client.Incr(ctx, "trust:"+userID)
 	} else {

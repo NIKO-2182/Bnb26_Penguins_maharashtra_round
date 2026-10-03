@@ -11,7 +11,6 @@ import (
 	"context"
 	"encoding/json"
 	"fairdrop/api/internal/store"
-	"time"
 )
 
 type Store struct {

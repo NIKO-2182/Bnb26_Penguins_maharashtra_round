@@ -8,6 +8,7 @@
 package httpx
 
 import (
+	"encoding/json"
 	"fairdrop/api/internal/config"
 	"fairdrop/api/internal/handlers"
 	"fairdrop/api/internal/ledger"
@@ -15,10 +16,11 @@ import (
 	"fairdrop/api/internal/session"
 	"fairdrop/api/internal/store"
 	"net/http"
+	"strconv"
 )
 
 type Router struct {
-	cfg    *config.Config
+	cfg     *config.Config
 	rdb     *store.RedisClient
 	ledger  *ledger.Service
 	metrics *metrics.Service
@@ -42,7 +44,7 @@ func (r *Router) Routes() *http.ServeMux {
 	mux.HandleFunc("/join", handlers.NewJoinHandler(mgr, r.rdb).HandleJoin)
 	mux.HandleFunc("/verify", handlers.NewVerifyHandler(mgr, r.rdb).HandleVerify)
 	mux.HandleFunc("/session", handlers.NewSessionHandler(mgr, r.rdb).HandleSession)
-	mux.HandleFunc("/claim", handlers.NewClaimHandler(r.rdb).HandleClaim)
+	mux.HandleFunc("/claim", handlers.NewClaimHandler(r.rdb, r.cfg).HandleClaim)
 	mux.HandleFunc("/metrics", r.HandleMetrics)
 	mux.HandleFunc("/ledger", r.HandleLedger)
 	mux.HandleFunc("/admin/mode", r.HandleAdminMode)
@@ -58,21 +60,56 @@ func (r *Router) HandleHealth(w http.ResponseWriter, req *http.Request) {
 }
 
 func (r *Router) HandleMetrics(w http.ResponseWriter, req *http.Request) {
-	// Logic will be here or in metrics service
+	data, err := r.metrics.GetMetrics(req.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(data)
 }
 
 func (r *Router) HandleLedger(w http.ResponseWriter, req *http.Request) {
-	// Logic will be here or in ledger service
+	limitStr := req.URL.Query().Get("limit")
+	limit := int64(50)
+	if limitStr != "" {
+		if parsed, err := strconv.ParseInt(limitStr, 10, 64); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+
+	events, err := r.ledger.GetRecent(req.Context(), limit)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(events)
 }
 
 func (r *Router) HandleAdminMode(w http.ResponseWriter, req *http.Request) {
-	// Logic will be here
+	var body struct {
+		Mode string `json:"mode"`
+	}
+	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	r.rdb.Client.Set(req.Context(), "admin:mode", body.Mode, 0)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 }
 
 func (r *Router) HandleAdminReset(w http.ResponseWriter, req *http.Request) {
-	// Logic will be here
+	ctx := req.Context()
+	r.rdb.Client.Del(ctx, store.KeySeatsLeft, store.KeySeatsClaimed, "ledger:events", "metrics:total_reqs", "metrics:429s", "metrics:pool_size", "metrics:granted_seats")
+	r.rdb.Client.Set(ctx, store.KeySeatsLeft, r.cfg.TotalSeats, 0)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 }
 
 func (r *Router) HandleAdminConfig(w http.ResponseWriter, req *http.Request) {
-	// Logic will be here
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 }

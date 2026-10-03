@@ -8,7 +8,6 @@
 package config
 
 import (
-	"fmt"
 	"os"
 	"strconv"
 )
@@ -22,6 +21,7 @@ type Config struct {
 	TrustThreshold float64
 	FPBudget       int
 	WindowSeconds  int
+	TotalSeats     int
 }
 
 func Load() (*Config, error) {
@@ -34,6 +34,10 @@ func Load() (*Config, error) {
 	trustThreshold, _ := strconv.ParseFloat(os.Getenv("TRUST_THRESHOLD"), 64)
 	fpBudget, _ := strconv.Atoi(os.Getenv("FP_BUDGET"))
 	windowSeconds, _ := strconv.Atoi(os.Getenv("WINDOW_SECONDS"))
+	totalSeats, _ := strconv.Atoi(os.Getenv("TOTAL_SEATS"))
+	if totalSeats == 0 {
+		totalSeats = 500
+	}
 
 	return &Config{
 		Port:           port,
@@ -44,5 +48,6 @@ func Load() (*Config, error) {
 		TrustThreshold: trustThreshold,
 		FPBudget:       fpBudget,
 		WindowSeconds:  windowSeconds,
+		TotalSeats:     totalSeats,
 	}, nil
 }

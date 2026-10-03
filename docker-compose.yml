@@ -27,8 +27,8 @@ services:
 
   api:
     build:
-      context: ./api
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: api/Dockerfile
     environment:
       - REDIS_URL=redis://redis:6379
       - DB_URL=postgres://user:password@db:5432/fairdrop
@@ -41,8 +41,8 @@ services:
 
   sim:
     build:
-      context: ./sim
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: sim/Dockerfile
     ports:
       - "8090:8090"
     depends_on:

@@ -25,13 +25,17 @@ type RedisClient struct {
 	Client *redis.Client
 }
 
-func NewRedisClient(url string) *RedisClient {
-	rdb := redis.NewClient(&redis.Options{
-		Addr: url,
-	})
+func NewRedisClient(rawURL string) *RedisClient {
+	opts, err := redis.ParseURL(rawURL)
+	if err != nil {
+		opts = &redis.Options{
+			Addr: rawURL,
+		}
+	}
+	rdb := redis.NewClient(opts)
 	return &RedisClient{Client: rdb}
 }
 
-func (r *RedisClient) Eval(script string, args ...interface{}) (*redis.StringCmd, error) {
-	return r.Client.Eval(script, args...).Result()
+func (r *RedisClient) Eval(ctx context.Context, script string, keys []string, args ...interface{}) *redis.Cmd {
+	return r.Client.Eval(ctx, script, keys, args...)
 }

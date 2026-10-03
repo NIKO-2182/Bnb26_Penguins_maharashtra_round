@@ -18,28 +18,39 @@ type ClaimResult struct {
 	Status string
 }
 
-func ClaimSeat(ctx context.Context, rdb *store.RedisClient, claimToken string) (*ClaimResult, error) {
-	// Note: claimToken in this context refers to the unique identifier for the claim request
-	// which we also store in the 'seats:claimed' set.
-	res, err := rdb.Eval(`
+func ClaimSeat(ctx context.Context, rdb *store.RedisClient, claimToken string, trustScore float64, randomVal float64) (*ClaimResult, error) {
+	res, err := rdb.Client.Eval(ctx, `
 		local seats_left = redis.call('get', 'seats:left')
 		if not seats_left or tonumber(seats_left) <= 0 then
 			return "sold_out"
 		end
 
-		if redis.call('sismember', 'seats:claimed', ARGV[1]) == 1 then
+		local claim_token = ARGV[1]
+		local random_val = tonumber(ARGV[2])
+		local trust_score = tonumber(ARGV[3])
+
+		if redis.call('sismember', 'seats:claimed', claim_token) == 1 then
 			return "duplicate_claim"
 		end
 
+		if random_val > trust_score then
+			return "rejected_low_trust"
+		end
+
 		redis.call('decr', 'seats:left')
-		redis.call('sadd', 'seats:claimed', ARGV[1])
+		redis.call('sadd', 'seats:claimed', claim_token)
 
 		return "seat_granted"
-	`, []string{claimToken})
+	`, []string{}, claimToken, fmt.Sprintf("%.6f", randomVal), fmt.Sprintf("%.6f", trustScore)).Result()
 
 	if err != nil {
 		return nil, fmt.Errorf("lua error: %w", err)
 	}
 
-	return &ClaimResult{Status: res[0].(string)}, nil
+	statusStr, ok := res.(string)
+	if !ok {
+		return nil, fmt.Errorf("unexpected lua result type")
+	}
+
+	return &ClaimResult{Status: statusStr}, nil
 }

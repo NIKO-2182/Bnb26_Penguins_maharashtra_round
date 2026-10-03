@@ -9,6 +9,7 @@ package allocator
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"fairdrop/api/internal/store"
@@ -36,7 +37,7 @@ func TestClaimSeatConcurrency(t *testing.T) {
 	for i := 0; i < numClaims; i++ {
 		go func(id int) {
 			claimToken := fmt.Sprintf("token-%d", id)
-			ClaimSeat(ctx, rdb, claimToken)
+			ClaimSeat(ctx, rdb, claimToken, 1.0, 0.0)
 			done <- true
 		}(i)
 	}

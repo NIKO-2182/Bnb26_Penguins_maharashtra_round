@@ -12,15 +12,14 @@
     - **Atomic Claim Logic**: Created and updated the Lua-based claim script (`claim.lua`) to support trust-weighted random draws.
 - [x] **Git & Versioning**: Initial commit established for the core skeleton.
 
-## Remaining Backend Tasks (Sprint to 9:30 PM)
-- [ ] **Trust & Claim Integration**:
-    - Connect `TrustManager` to `ClaimHandler` to retrieve user scores.
-    - Refactor `ClaimHandler.HandleClaim` to generate a random value and pass both `trustScore` and `random_val` to the allocator.
-- [ ] **API Endpoint Wiring**:
-    - Implement logic for `/metrics` to surface live pool data and error rates.
-    - Implement logic for `/ledger` to expose the event stream.
-- [ ] **Admin Controls**:
-    - Implement a basic "Mode" toggle (Fair Drop ON/OFF) via configuration or simple flag.
+- [x] **Trust & Claim Integration**:
+    - Connected `TrustManager` to `ClaimHandler` to retrieve user trust scores.
+    - Refactored `ClaimHandler.HandleClaim` and `allocator.ClaimSeat` to evaluate `trustScore` and `random_val` atomically in Lua CAS script.
+- [x] **API Endpoint Wiring**:
+    - Implemented logic for `/metrics` to surface live pool data and error rates.
+    - Implemented logic for `/ledger` to expose the event stream with pagination support.
+- [x] **Admin Controls**:
+    - Implemented `/admin/mode`, `/admin/reset`, and `/admin/config` endpoints.
 
 ## Technical Context
 - **Database**: Redis (Primary for claims, sessions, and trust scores).

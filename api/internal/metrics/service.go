@@ -12,7 +12,6 @@ import (
 	"fairdrop/api/internal/config"
 	"fairdrop/api/internal/ledger"
 	"fairdrop/api/internal/store"
-	"fairdrop/api/internal/session"
 	"strconv"
 )
 
@@ -52,6 +51,7 @@ func (s *Service) GetMetrics(ctx context.Context) (map[string]any, error) {
 
 	// Fairness Metrics
 	events, _ := s.ledger.GetRecent(ctx, 1000)
+	_ = events
 	
 	// Placeholder values for now until we have better data
 	return map[string]any{
