@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./api:/app
+    environment:
+      - REDIS_URL=redis://localhost:6379
+      - DB_URL=postgres://user:password@localhost:5432/fairdrop
+      - HMAC_SECRET=${HMAC_SECRET}
+      - SIM_MODE=true
+      - TRUST_THRESHOLD=${TRUST_THRESHOLD}
+      - FP_BUDGET=${FP_BUDGET}
+      - WINDOW_SECONDS=${WINDOW_SECONDS}
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./web:/app
+      - /app/node_modules
