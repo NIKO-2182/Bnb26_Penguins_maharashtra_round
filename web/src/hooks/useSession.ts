@@ -49,10 +49,25 @@ function subscribe(l: () => void) {
   }
 }
 
+function readStoredToken(): string | null {
+  try {
+    const raw = localStorage.getItem(TOKEN_KEY)
+    if (!raw || raw === "undefined" || raw === "null" || raw.trim() === "") {
+      return null
+    }
+    return raw
+  } catch {
+    return null
+  }
+}
+
 function readChallenge(): PowChallenge | null {
   try {
     const raw = localStorage.getItem(CHALLENGE_KEY)
-    return raw ? (JSON.parse(raw) as PowChallenge) : null
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as PowChallenge
+    if (!parsed || typeof parsed.difficulty !== "number") return null
+    return parsed
   } catch {
     return null
   }
@@ -63,7 +78,7 @@ function mapState(raw: SessionRaw): { phase: Phase; reason: string | null } {
   const reason = raw.reason_code ?? null
   if (s.startsWith("rejected") || s === "duplicate_claim" || s === "sold_out" || s === "expired")
     return { phase: "rejected", reason: reason ?? s }
-  if (s === "claimed" || s === "seat_granted") return { phase: "claimed", reason }
+  if (s === "claimed" || s === "seat_granted" || s === "allocated") return { phase: "claimed", reason }
   if (s === "won" || s === "selected") return { phase: "won", reason }
   if (s.startsWith("not_selected")) return { phase: "not_selected", reason }
   if (s === "in_draw" || s === "draw" || s === "drawing") return { phase: "in_draw", reason }
@@ -73,7 +88,7 @@ function mapState(raw: SessionRaw): { phase: Phase; reason: string | null } {
 
 export function useSession() {
   const qc = useQueryClient()
-  const token = useSyncExternalStore(subscribe, () => localStorage.getItem(TOKEN_KEY))
+  const token = useSyncExternalStore(subscribe, readStoredToken)
   const verified = useSyncExternalStore(subscribe, () => localStorage.getItem(VERIFIED_KEY) === "1")
   const [pow, setPow] = useState<PowState | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -116,7 +131,6 @@ export function useSession() {
     onError: (e: Error) => {
       setPow(null)
       setError(e.message)
-      // A 4xx means the server judged the answer; let GET /session report the outcome.
       if (e instanceof ApiError && e.status >= 400 && e.status < 500) {
         localStorage.setItem(VERIFIED_KEY, "1")
         localStorage.removeItem(CHALLENGE_KEY)
@@ -127,14 +141,16 @@ export function useSession() {
 
   const solve = useCallback(
     (t: string, ch: PowChallenge) => {
+      const diff = typeof ch.difficulty === "number" ? ch.difficulty : 4
       workerRef.current?.terminate()
       const worker = new Worker(new URL("../lib/pow.worker.ts", import.meta.url), { type: "module" })
       workerRef.current = worker
-      setPow({ attempts: 0, expected: 2 ** ch.difficulty, hashRate: 0 })
+      setPow({ attempts: 0, expected: 2 ** diff, hashRate: 0 })
+      worker.postMessage({ challenge: ch.challenge || "solve_me", difficulty: diff })
       worker.onmessage = (ev) => {
         const msg = ev.data
         if (msg.type === "progress") {
-          setPow({ attempts: msg.attempts, expected: 2 ** ch.difficulty, hashRate: msg.hashRate })
+          setPow({ attempts: msg.attempts, expected: 2 ** diff, hashRate: msg.hashRate })
         } else if (msg.type === "done") {
           worker.terminate()
           workerRef.current = null
@@ -153,12 +169,22 @@ export function useSession() {
   const joinMut = useMutation({
     mutationFn: joinApi,
     onMutate: () => setError(null),
-    onSuccess: (data) => {
-      localStorage.setItem(TOKEN_KEY, data.token)
-      localStorage.setItem(CHALLENGE_KEY, JSON.stringify({ challenge: data.challenge, difficulty: data.difficulty }))
+    onSuccess: (raw) => {
+      const data = raw as unknown as Record<string, unknown>
+      const tok = (data.token ?? data.session_token ?? "") as string
+      const ch = (data.challenge ?? data.pow_challenge ?? "solve_me") as string
+      const diff = typeof data.difficulty === "number" ? data.difficulty : 4
+
+      if (!tok) {
+        setError("Invalid response from server")
+        return
+      }
+
+      localStorage.setItem(TOKEN_KEY, tok)
+      localStorage.setItem(CHALLENGE_KEY, JSON.stringify({ challenge: ch, difficulty: diff }))
       localStorage.removeItem(VERIFIED_KEY)
       notify()
-      solve(data.token, { challenge: data.challenge, difficulty: data.difficulty })
+      solve(tok, { challenge: ch, difficulty: diff })
     },
     onError: (e: Error) => setError(e.message),
   })
@@ -172,14 +198,23 @@ export function useSession() {
     onError: (e: Error) => setError(e.message),
   })
 
-  // Resume an interrupted PoW after a page refresh.
+  // Resume or clean up
   useEffect(() => {
-    if (token && !verified && !workerRef.current && !verifyMut.isPending) {
-      const ch = readChallenge()
-      if (ch) solve(token, ch)
+    if (token) {
+      if (token === "undefined" || token === "null") {
+        clear()
+        return
+      }
+      if (!verified && !workerRef.current && !verifyMut.isPending) {
+        const ch = readChallenge()
+        if (ch) {
+          solve(token, ch)
+        } else {
+          clear()
+        }
+      }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, verified])
+  }, [token, verified, solve, verifyMut.isPending, clear])
 
   useEffect(
     () => () => {
@@ -191,7 +226,7 @@ export function useSession() {
 
   let phase: Phase = "idle"
   let reason: string | null = null
-  if (token) {
+  if (token && token !== "undefined" && token !== "null") {
     if (!verified) phase = "verifying"
     else if (session.data) ({ phase, reason } = mapState(session.data))
     else phase = "waiting"

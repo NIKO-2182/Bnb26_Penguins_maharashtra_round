@@ -1,9 +1,9 @@
 // FILE: /Users/phodeco/Tech/hacks/BitNBuilds/api/main.go
-// PURPOSE: Main entry point for the API
+// PURPOSE: Main entry point for the API backend
 // INPUTS / OUTPUTS: N/A
 // DEPENDS ON: config, store, httpx
 // USED BY: N/A
-// RULES: Graceful shutdown
+// RULES: Graceful shutdown and Redis state initialization
 // DO NOT: N/A
 package main
 
@@ -30,6 +30,12 @@ func main() {
 
 	rdb := store.NewRedisClient(cfg.RedisURL)
 	defer rdb.Client.Close()
+
+	// Initialize seats:left in Redis if not set
+	currSeats, err := rdb.Client.Get(context.Background(), store.KeySeatsLeft).Result()
+	if err != nil || currSeats == "" {
+		rdb.Client.Set(context.Background(), store.KeySeatsLeft, cfg.TotalSeats, 0)
+	}
 
 	router := httpx.NewRouter(cfg, rdb)
 	mux := router.Routes()

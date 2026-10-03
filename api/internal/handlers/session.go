@@ -12,6 +12,7 @@ import (
 	"fairdrop/api/internal/session"
 	"fairdrop/api/internal/store"
 	"net/http"
+	"strings"
 )
 
 type SessionHandler struct {
@@ -25,11 +26,33 @@ func NewSessionHandler(mgr *session.Manager, rdb *store.RedisClient) *SessionHan
 
 func (h *SessionHandler) HandleSession(w http.ResponseWriter, req *http.Request) {
 	token := req.URL.Query().Get("token")
-	sess, err := session.GetSession(req.Context(), h.rdb, token)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	if token == "" {
+		auth := req.Header.Get("Authorization")
+		if len(auth) > 7 && auth[:7] == "Bearer " {
+			token = auth[7:]
+		}
+	}
+	if token == "" {
+		http.Error(w, "missing token parameter", http.StatusBadRequest)
 		return
 	}
 
+	sess, err := session.GetSession(req.Context(), h.rdb, token)
+	if err != nil || sess == nil {
+		if strings.Contains(token, " ") {
+			altToken := strings.ReplaceAll(token, " ", "+")
+			if altSess, altErr := session.GetSession(req.Context(), h.rdb, altToken); altErr == nil && altSess != nil {
+				sess = altSess
+				err = nil
+			}
+		}
+	}
+
+	if err != nil || sess == nil {
+		http.Error(w, "session not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(sess)
 }

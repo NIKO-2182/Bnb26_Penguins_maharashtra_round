@@ -28,8 +28,10 @@ func (h *JoinHandler) HandleJoin(w http.ResponseWriter, req *http.Request) {
 		Username string `json:"username"`
 	}
 	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
+		body.Username = "user_anon"
+	}
+	if body.Username == "" {
+		body.Username = "user_anon"
 	}
 
 	token, err := h.mgr.Join(req.Context(), body.Username)
@@ -38,5 +40,12 @@ func (h *JoinHandler) HandleJoin(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	json.NewEncoder(w).Encode(map[string]string{"session_token": token, "pow_challenge": "solve_me"})
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"token":         token,
+		"session_token": token,
+		"challenge":     "solve_me",
+		"pow_challenge": "solve_me",
+		"difficulty":    4,
+	})
 }

@@ -16,9 +16,11 @@ This document provides step-by-step instructions for running the Fair Drop backe
 
 The **`Makefile`** is a task automation file located in the root of the project. It provides shortcut commands (aliases) for common development and container operations. 
 
-Instead of remembering and typing long CLI commands like `docker compose up -d --build` or `pnpm --dir web dev`, you can run simple `make` shortcuts:
+Instead of remembering and typing long CLI commands like `docker compose up -d --build` or `pnpm --dir web dev`, you can run simple `make` shortcuts (if `make` is installed on your OS).
 
-| Makefile Target | Executed Command | Description |
+> **Note for Windows Users**: On Windows PowerShell, if `make` is not installed, run the **Executed Command** column directly in your terminal (e.g. `docker compose up -d --build`).
+
+| Makefile Target | Executed Command (Windows / Direct) | Description |
 | :--- | :--- | :--- |
 | `make up` | `docker compose up -d --build` | Builds & starts all stack containers in detached mode |
 | `make down` | `docker compose down` | Stops and removes all running containers and networks |
@@ -181,3 +183,22 @@ Once the API backend is active on `http://localhost:8080`:
 * **Live Metrics**: `curl http://localhost:8080/metrics`
 * **Ledger Audit**: `curl "http://localhost:8080/ledger?limit=10"`
 * **Reset State**: `curl -X POST http://localhost:8080/admin/reset`
+
+---
+
+## 8. Abuse & Trust Signal Engine Architecture
+
+The backend includes a multi-layered behavior evaluation engine in `api/internal/abuse/`:
+
+| Module | Location | Description |
+| :--- | :--- | :--- |
+| **Signal Extractor** | `api/internal/abuse/signals.go` | Extracts timing variance across requests, sustained burst counts ($>3$), IP/subnet session density, and exact PoW solve durations. |
+| **Fairness Controller** | `api/internal/abuse/budget.go` | Label-free proxy controller tracking borderline trust score ratios ($0.2\text{--}0.4$) to adjust score thresholds dynamically while maintaining 100% ground-truth isolation. |
+| **Trust Manager** | `api/internal/abuse/trust.go` | Combines PoW solve speed scaling ($<100\text{ms}$ soft penalty vs $1\text{s}\text{--}15\text{s}$ human bonus), timing variance, burst guards, and shared IP ceilings ($>150$ per IP). |
+| **Unit Tests** | `api/internal/abuse/trust_test.go` | Table-driven unit test suite asserting score ranges across human (`human_normal`, `human_slow`, `human_frustrated`, `human_shared_ip`) and bot profiles (`bot_naive`, `bot_solver`). |
+
+### Running Unit Tests
+```bash
+go test ./api/internal/abuse/...
+```
+

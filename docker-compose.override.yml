@@ -10,8 +10,8 @@ services:
     volumes:
       - ./api:/app
     environment:
-      - REDIS_URL=redis://localhost:6379
-      - DB_URL=postgres://user:password@localhost:5432/fairdrop
+      - REDIS_URL=redis://redis:6379
+      - DB_URL=postgres://user:password@db:5432/fairdrop
       - HMAC_SECRET=${HMAC_SECRET}
       - SIM_MODE=true
       - TRUST_THRESHOLD=${TRUST_THRESHOLD}

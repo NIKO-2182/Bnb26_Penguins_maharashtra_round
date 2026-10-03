@@ -21,8 +21,8 @@ export const ConfusionMatrixPanel: React.FC<Props> = ({ metrics }) => {
   const total = tp + fp + fn + tn
   const pct = (val: number) => (total > 0 ? ((val / total) * 100).toFixed(1) + "%" : "0%")
 
-  const precision = (metrics?.precision ?? (tp + fp > 0 ? tp / (tp + fp) : 1.0)) * 100
-  const recall = (metrics?.recall ?? (tp + fn > 0 ? tp / (tp + fn) : 1.0)) * 100
+  const precision = (metrics?.precision ?? (tp + fp > 0 ? tp / (tp + fp) : 0.0)) * 100
+  const recall = (metrics?.recall ?? (tp + fn > 0 ? tp / (tp + fn) : 0.0)) * 100
   const fpRate = (metrics?.human_false_rejection_rate ?? (fp + tn > 0 ? fp / (fp + tn) : 0.0)) * 100
 
   const byReason = metrics?.by_reason ?? {}

@@ -9,6 +9,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fairdrop/api/internal/abuse"
 	"fairdrop/api/internal/session"
 	"fairdrop/api/internal/store"
 	"net/http"
@@ -26,18 +27,41 @@ func NewVerifyHandler(mgr *session.Manager, rdb *store.RedisClient) *VerifyHandl
 func (h *VerifyHandler) HandleVerify(w http.ResponseWriter, req *http.Request) {
 	var body struct {
 		SessionToken string `json:"session_token"`
+		Token        string `json:"token"`
+		T            string `json:"t"`
 		Solution     string `json:"solution"`
+		Nonce        string `json:"nonce"`
 	}
 	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	err := h.mgr.Verify(req.Context(), body.SessionToken, body.Solution)
+	tok := body.SessionToken
+	if tok == "" {
+		tok = body.Token
+	}
+	if tok == "" {
+		tok = body.T
+	}
+
+	sol := body.Solution
+	if sol == "" {
+		sol = body.Nonce
+	}
+
+	ip := extractIP(req)
+	subnet := abuse.GetSubnet(ip)
+
+	err := h.mgr.Verify(req.Context(), tok, sol, ip, subnet)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	json.NewEncoder(w).Encode(map[string]string{"status": "verified"})
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"status": "verified",
+		"state":  "verified",
+	})
 }

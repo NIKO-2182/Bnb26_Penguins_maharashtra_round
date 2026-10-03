@@ -1,5 +1,5 @@
 // FILE: /Users/phodeco/Tech/hacks/BitNBuilds/api/internal/allocator/claim.go
-// PURPOSE: Executes the claim logic via Lua
+// PURPOSE: Executes the claim logic via Lua with auto-initializing seats
 // INPUTS / OUTPUTS: N/A
 // DEPENDS ON: store/redis.go
 // USED BY: handlers/claim.go
@@ -21,7 +21,11 @@ type ClaimResult struct {
 func ClaimSeat(ctx context.Context, rdb *store.RedisClient, claimToken string, trustScore float64, randomVal float64) (*ClaimResult, error) {
 	res, err := rdb.Client.Eval(ctx, `
 		local seats_left = redis.call('get', 'seats:left')
-		if not seats_left or tonumber(seats_left) <= 0 then
+		if not seats_left then
+			redis.call('set', 'seats:left', '500')
+			seats_left = '500'
+		end
+		if tonumber(seats_left) <= 0 then
 			return "sold_out"
 		end
 

@@ -73,7 +73,22 @@ func (h *ClaimHandler) HandleClaim(w http.ResponseWriter, req *http.Request) {
 		userID = body.ClaimToken
 	}
 
-	trustScore := h.trust.GetTrustScore(req.Context(), userID)
+	mode, _ := h.rdb.Client.Get(req.Context(), "admin:mode").Result()
+	if mode == "" {
+		mode = "fair"
+	}
+
+	h.trust.RecordRequestSignal(req.Context(), body.ClaimToken, ip, subnet)
+
+	trustScore := h.trust.GetTrustScore(req.Context(), body.ClaimToken)
+	if trustScore < 0.2 && userID != body.ClaimToken {
+		trustScore = h.trust.GetTrustScore(req.Context(), userID)
+	}
+
+	// In FCFS mode, bypass trust scoring
+	if mode == "fcfs" {
+		trustScore = 1.0
+	}
 
 	// Check Cooldown soft penalty
 	if h.rateLimiter.CheckCooldown(req.Context(), userID) {
@@ -109,6 +124,10 @@ func (h *ClaimHandler) HandleClaim(w http.ResponseWriter, req *http.Request) {
 		TrustScore:   trustScore,
 		EventType:    ledger.EventTypeClaim,
 		ReasonCode:   reasonCode,
+		Metadata: map[string]any{
+			"trust_score": trustScore,
+			"ip_count":    h.trust.GetIPCount(req.Context(), ip),
+		},
 	})
 
 	json.NewEncoder(w).Encode(map[string]string{"status": res.Status})

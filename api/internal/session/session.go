@@ -1,10 +1,11 @@
 // FILE: /Users/phodeco/Tech/hacks/BitNBuilds/api/internal/session/session.go
-// PURPOSE: Session logic layer
+// PURPOSE: Session logic layer with machine-speed PoW bot detection
 // INPUTS / OUTPUTS: N/A
 // DEPENDS ON: token.go, store.go, abuse/ratelimit.go, abuse/pow.go, abuse/trust.go
 // USED BY: handlers/join.go
-// RULES: N/A
-// DO NOT: N/A
+// RULES: Penalize machine-speed PoW solves (<250ms) with low trust (0.05)
+// DO NOT: Grant high trust to machine-speed bot solves
+
 package session
 
 import (
@@ -17,10 +18,12 @@ import (
 )
 
 type Session struct {
-	UserID   string
-	Status   string // new|challenged|verified|pooled|selected|claimed|not_selected|rejected
-	Trust    float64
-	PoWProof string
+	UserID    string    `json:"user_id"`
+	Status    string    `json:"status"` // joined|verified|selected|claimed|not_selected|rejected
+	State     string    `json:"state"`  // alias for status
+	Trust     float64   `json:"trust"`
+	PoWProof  string    `json:"pow_proof"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 type Manager struct {
@@ -49,25 +52,40 @@ func (m *Manager) Join(ctx context.Context, userID string) (string, error) {
 
 	token := CreateToken(userID, m.cfg.HMACSecret)
 	sess := &Session{
-		UserID: userID,
-		Status: "new",
-		Trust:  m.trust.GetTrustScore(ctx, userID),
+		UserID:    userID,
+		Status:    "joined",
+		State:     "joined",
+		Trust:     0.1,
+		CreatedAt: time.Now(),
 	}
 	SaveSession(ctx, m.rdb, token, sess)
+	m.trust.SetTrustScore(ctx, token, 0.1)
 	return token, nil
 }
 
-func (m *Manager) Verify(ctx context.Context, token, solution string) error {
+func (m *Manager) Verify(ctx context.Context, token, solution, ip, subnet string) error {
 	sess, err := GetSession(ctx, m.rdb, token)
 	if err != nil {
 		return err
 	}
 
 	if !m.pow.Verify(solution, 4) {
+		m.trust.SetTrustScore(ctx, token, 0.05)
 		return errors.New("invalid proof")
 	}
 
+	solveTimeMs := int64(0)
+	if !sess.CreatedAt.IsZero() {
+		solveTimeMs = time.Since(sess.CreatedAt).Milliseconds()
+	}
+
 	sess.Status = "verified"
+	sess.State = "verified"
+	sess.PoWProof = solution
+
+	trustScore := m.trust.EvaluateSessionTrust(ctx, token, ip, subnet, solveTimeMs)
+	sess.Trust = trustScore
+
 	SaveSession(ctx, m.rdb, token, sess)
 	return nil
 }

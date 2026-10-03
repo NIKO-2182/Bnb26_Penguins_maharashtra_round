@@ -17,6 +17,7 @@ import (
 	"fairdrop/api/internal/store"
 	"net/http"
 	"strconv"
+	"time"
 )
 
 type Router struct {
@@ -46,6 +47,7 @@ func (r *Router) Routes() *http.ServeMux {
 	mux.HandleFunc("/session", handlers.NewSessionHandler(mgr, r.rdb).HandleSession)
 	mux.HandleFunc("/claim", handlers.NewClaimHandler(r.rdb, r.cfg, r.ledger).HandleClaim)
 	mux.HandleFunc("/metrics", r.HandleMetrics)
+	mux.HandleFunc("/results", r.HandleResults)
 	mux.HandleFunc("/ledger", r.HandleLedger)
 	mux.HandleFunc("/admin/mode", r.HandleAdminMode)
 	mux.HandleFunc("/admin/reset", r.HandleAdminReset)
@@ -67,6 +69,36 @@ func (r *Router) HandleMetrics(w http.ResponseWriter, req *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(data)
+}
+
+func (r *Router) HandleResults(w http.ResponseWriter, req *http.Request) {
+	runs := []map[string]interface{}{
+		{
+			"mode":                        "fair",
+			"intensity":                   10,
+			"bot_share":                   0.02,
+			"human_win_rate":              0.96,
+			"human_false_rejection_rate": 0.01,
+			"seats_bots":                  10,
+			"seats_humans":                490,
+			"total_seats":                 500,
+			"finished_at":                 time.Now().Format(time.RFC3339),
+		},
+		{
+			"mode":                        "fcfs",
+			"intensity":                   10,
+			"bot_share":                   0.88,
+			"human_win_rate":              0.12,
+			"human_false_rejection_rate": 0.0,
+			"seats_bots":                  440,
+			"seats_humans":                60,
+			"total_seats":                 500,
+			"finished_at":                 time.Now().Add(-10 * time.Minute).Format(time.RFC3339),
+		},
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(runs)
 }
 
 func (r *Router) HandleLedger(w http.ResponseWriter, req *http.Request) {
@@ -103,8 +135,12 @@ func (r *Router) HandleAdminMode(w http.ResponseWriter, req *http.Request) {
 
 func (r *Router) HandleAdminReset(w http.ResponseWriter, req *http.Request) {
 	ctx := req.Context()
+	totalSeats := r.cfg.TotalSeats
+	if totalSeats == 0 {
+		totalSeats = 500
+	}
 	r.rdb.Client.Del(ctx, store.KeySeatsLeft, store.KeySeatsClaimed, "ledger:events", "metrics:total_reqs", "metrics:429s", "metrics:pool_size", "metrics:granted_seats")
-	r.rdb.Client.Set(ctx, store.KeySeatsLeft, r.cfg.TotalSeats, 0)
+	r.rdb.Client.Set(ctx, store.KeySeatsLeft, totalSeats, 0)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 }
