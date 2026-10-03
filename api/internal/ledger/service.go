@@ -21,6 +21,13 @@ func NewService(rdb *store.RedisClient) *Service {
 	return &Service{store: NewStore(rdb)}
 }
 
+func (s *Service) RecordEvent(ctx context.Context, event Event) error {
+	if event.Timestamp.IsZero() {
+		event.Timestamp = time.Now()
+	}
+	return s.store.RecordEvent(ctx, event)
+}
+
 func (s *Service) Record(ctx context.Context, userID string, eventType string, reasonCode string, metadata map[string]any) error {
 	event := Event{
 		Timestamp:  time.Now(),

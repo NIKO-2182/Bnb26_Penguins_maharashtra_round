@@ -1,0 +1,12 @@
+{
+  "name": "fairdrop",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@12.3.4",
+  "scripts": {
+    "postinstall": "pnpm --dir web install",
+    "dev": "pnpm --dir web dev",
+    "build": "pnpm --dir web build",
+    "start": "pnpm --dir web preview --host 0.0.0.0 --port 3000"
+  }
+}

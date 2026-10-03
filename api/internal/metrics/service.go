@@ -49,20 +49,79 @@ func (s *Service) GetMetrics(ctx context.Context) (map[string]any, error) {
 	grantedSeats, _ := strconv.ParseFloat(grantedSeatsRaw, 64)
 	seatsLeft := s.cfg.TotalSeats - int(grantedSeats)
 
-	// Fairness Metrics
-	events, _ := s.ledger.GetRecent(ctx, 1000)
-	_ = events
-	
-	// Placeholder values for now until we have better data
+	// Fairness Metrics from Ledger Events
+	events, _ := s.ledger.GetRecent(ctx, 5000)
+
+	var tp, fp, fn, tn int64
+	byReason := make(map[string]int64)
+	byProfile := make(map[string]int64)
+
+	for _, ev := range events {
+		isRejected := (ev.ReasonCode == ledger.ReasonRejectedLowTrust ||
+			ev.ReasonCode == ledger.ReasonRejectedRateLimitIp ||
+			ev.ReasonCode == ledger.ReasonRejectedRateLimitTk ||
+			ev.ReasonCode == ledger.ReasonRejectedRateLimitCooldown ||
+			ev.ReasonCode == ledger.ReasonRejectedSubnetLimit ||
+			ev.ReasonCode == ledger.ReasonRejectedPoWInvalid ||
+			ev.ReasonCode == ledger.ReasonRejectedPoWTooFast)
+
+		isGranted := (ev.ReasonCode == ledger.ReasonSeatGranted)
+
+		if ev.UserType == "bot" {
+			if isRejected {
+				tp++
+			} else if isGranted {
+				fn++
+			}
+		} else if ev.UserType == "human" {
+			if isGranted || ev.ReasonCode == ledger.ReasonAcceptedPool {
+				tn++
+			} else if isRejected {
+				fp++
+				byReason[ev.ReasonCode]++
+				if ev.HumanProfile != "" {
+					byProfile[ev.HumanProfile]++
+				} else {
+					byProfile["human_normal"]++
+				}
+			}
+		}
+	}
+
+	precision := 1.0
+	if tp+fp > 0 {
+		precision = float64(tp) / float64(tp+fp)
+	}
+
+	recall := 1.0
+	if tp+fn > 0 {
+		recall = float64(tp) / float64(tp+fn)
+	}
+
+	humanFalseRejectionRate := 0.0
+	if fp+tn > 0 {
+		humanFalseRejectionRate = float64(fp) / float64(fp+tn)
+	}
+
+	botShare := 0.0
+	if fn+tn > 0 {
+		botShare = float64(fn) / float64(fn+tn)
+	}
+
 	return map[string]any{
-		"rps":                    rps,
-		"429s":                   count429,
-		"seats_left":             seatsLeft,
-		"pool_size":              poolSize,
-		"bot_share":              0.0,
-		"human_win_rate":         0.0,
-		"expected_win_rate":      0.0,
-		"human_false_rejection_rate": 0.0,
-		"allocation_spread":      0.0,
+		"rps":                        rps,
+		"429s":                       count429,
+		"seats_left":                 seatsLeft,
+		"pool_size":                  poolSize,
+		"tp":                         tp,
+		"fp":                         fp,
+		"fn":                         fn,
+		"tn":                         tn,
+		"precision":                  precision,
+		"recall":                     recall,
+		"human_false_rejection_rate": humanFalseRejectionRate,
+		"bot_share":                  botShare,
+		"by_reason":                  byReason,
+		"by_profile":                 byProfile,
 	}, nil
 }

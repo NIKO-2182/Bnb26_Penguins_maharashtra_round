@@ -44,7 +44,7 @@ func (r *Router) Routes() *http.ServeMux {
 	mux.HandleFunc("/join", handlers.NewJoinHandler(mgr, r.rdb).HandleJoin)
 	mux.HandleFunc("/verify", handlers.NewVerifyHandler(mgr, r.rdb).HandleVerify)
 	mux.HandleFunc("/session", handlers.NewSessionHandler(mgr, r.rdb).HandleSession)
-	mux.HandleFunc("/claim", handlers.NewClaimHandler(r.rdb, r.cfg).HandleClaim)
+	mux.HandleFunc("/claim", handlers.NewClaimHandler(r.rdb, r.cfg, r.ledger).HandleClaim)
 	mux.HandleFunc("/metrics", r.HandleMetrics)
 	mux.HandleFunc("/ledger", r.HandleLedger)
 	mux.HandleFunc("/admin/mode", r.HandleAdminMode)

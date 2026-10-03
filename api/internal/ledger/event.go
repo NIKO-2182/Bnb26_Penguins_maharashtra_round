@@ -10,12 +10,17 @@ package ledger
 import "time"
 
 type Event struct {
-	ID         int64           `json:"id"`
-	Timestamp  time.Time       `json:"timestamp"`
-	UserID     string          `json:"user_id"`
-	EventType  string          `json:"event_type"`
-	ReasonCode string          `json:"reason_code"`
-	Metadata   map[string]any  `json:"metadata"`
+	ID           int64          `json:"id"`
+	Timestamp    time.Time      `json:"timestamp"`
+	UserID       string         `json:"user_id"`
+	UserType     string         `json:"user_type,omitempty"`     // "human" | "bot" (Ground truth label for metrics only)
+	HumanProfile string         `json:"human_profile,omitempty"` // "human_normal" | "human_slow" | "human_frustrated" | "human_shared_ip"
+	IP           string         `json:"ip,omitempty"`
+	Subnet       string         `json:"subnet,omitempty"`
+	TrustScore   float64        `json:"trust_score,omitempty"`
+	EventType    string         `json:"event_type"`
+	ReasonCode   string         `json:"reason_code"`
+	Metadata     map[string]any `json:"metadata,omitempty"`
 }
 
 const (
@@ -25,15 +30,17 @@ const (
 	EventTypeClaim         = "claim"
 	EventTypeDraw          = "draw"
 
-	ReasonAcceptedPool        = "accepted_pool"
-	ReasonSelected            = "selected"
-	ReasonSeatGranted         = "seat_granted"
-	ReasonRejectedRateLimitIp = "rejected_ratelimit_ip"
-	ReasonRejectedRateLimitTk = "rejected_ratelimit_token"
-	ReasonRejectedPoWInvalid  = "rejected_pow_invalid"
-	ReasonRejectedPoWTooFast  = "rejected_pow_too_fast"
-	ReasonRejectedLowTrust    = "rejected_low_trust"
-	ReasonNotSelectedDraw     = "not_selected_draw"
-	ReasonSoldOut             = "sold_out"
-	ReasonDuplicateClaim      = "duplicate_claim"
+	ReasonAcceptedPool              = "accepted_pool"
+	ReasonSelected                  = "selected"
+	ReasonSeatGranted               = "seat_granted"
+	ReasonRejectedRateLimitIp       = "rejected_ratelimit_ip"
+	ReasonRejectedRateLimitTk       = "rejected_ratelimit_token"
+	ReasonRejectedRateLimitCooldown = "rejected_ratelimit_cooldown"
+	ReasonRejectedSubnetLimit       = "rejected_subnet_limit"
+	ReasonRejectedPoWInvalid        = "rejected_pow_invalid"
+	ReasonRejectedPoWTooFast        = "rejected_pow_too_fast"
+	ReasonRejectedLowTrust          = "rejected_low_trust"
+	ReasonNotSelectedDraw           = "not_selected_draw"
+	ReasonSoldOut                   = "sold_out"
+	ReasonDuplicateClaim            = "duplicate_claim"
 )

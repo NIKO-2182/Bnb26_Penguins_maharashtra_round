@@ -12,24 +12,41 @@ import (
 	"fairdrop/api/internal/abuse"
 	"fairdrop/api/internal/allocator"
 	"fairdrop/api/internal/config"
+	"fairdrop/api/internal/ledger"
 	"fairdrop/api/internal/session"
 	"fairdrop/api/internal/store"
 	"math/rand"
 	"net/http"
+	"strings"
 )
 
 type ClaimHandler struct {
-	rdb   *store.RedisClient
-	cfg   *config.Config
-	trust *abuse.TrustManager
+	rdb         *store.RedisClient
+	cfg         *config.Config
+	trust       *abuse.TrustManager
+	rateLimiter *abuse.RateLimiter
+	ledger      *ledger.Service
 }
 
-func NewClaimHandler(rdb *store.RedisClient, cfg *config.Config) *ClaimHandler {
+func NewClaimHandler(rdb *store.RedisClient, cfg *config.Config, ledgerSvc *ledger.Service) *ClaimHandler {
 	return &ClaimHandler{
-		rdb:   rdb,
-		cfg:   cfg,
-		trust: abuse.NewTrustManager(rdb, cfg),
+		rdb:         rdb,
+		cfg:         cfg,
+		trust:       abuse.NewTrustManager(rdb, cfg),
+		rateLimiter: abuse.NewRateLimiter(rdb, cfg),
+		ledger:      ledgerSvc,
 	}
+}
+
+func extractIP(req *http.Request) string {
+	if simIP := req.Header.Get("X-Sim-IP"); simIP != "" {
+		return simIP
+	}
+	if fwd := req.Header.Get("X-Forwarded-For"); fwd != "" {
+		parts := strings.Split(fwd, ",")
+		return strings.TrimSpace(parts[0])
+	}
+	return req.RemoteAddr
 }
 
 func (h *ClaimHandler) HandleClaim(w http.ResponseWriter, req *http.Request) {
@@ -41,19 +58,58 @@ func (h *ClaimHandler) HandleClaim(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	ip := extractIP(req)
+	subnet := abuse.GetSubnet(ip)
+
+	userType := ""
+	humanProfile := ""
+	if h.cfg.SIMMode {
+		userType = req.Header.Get("X-Sim-User-Type")
+		humanProfile = req.Header.Get("X-Sim-Profile")
+	}
+
 	userID, err := session.VerifyToken(body.ClaimToken, h.cfg.HMACSecret)
 	if err != nil {
 		userID = body.ClaimToken
 	}
 
 	trustScore := h.trust.GetTrustScore(req.Context(), userID)
-	randomVal := rand.Float64()
 
+	// Check Cooldown soft penalty
+	if h.rateLimiter.CheckCooldown(req.Context(), userID) {
+		h.ledger.RecordEvent(req.Context(), ledger.Event{
+			UserID:       userID,
+			UserType:     userType,
+			HumanProfile: humanProfile,
+			IP:           ip,
+			Subnet:       subnet,
+			TrustScore:   trustScore,
+			EventType:    ledger.EventTypeClaim,
+			ReasonCode:   ledger.ReasonRejectedRateLimitCooldown,
+		})
+		w.WriteHeader(http.StatusTooManyRequests)
+		json.NewEncoder(w).Encode(map[string]string{"status": ledger.ReasonRejectedRateLimitCooldown, "message": "Slow down, try again in 5s"})
+		return
+	}
+
+	randomVal := rand.Float64()
 	res, err := allocator.ClaimSeat(req.Context(), h.rdb, body.ClaimToken, trustScore, randomVal)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	reasonCode := res.Status
+	h.ledger.RecordEvent(req.Context(), ledger.Event{
+		UserID:       userID,
+		UserType:     userType,
+		HumanProfile: humanProfile,
+		IP:           ip,
+		Subnet:       subnet,
+		TrustScore:   trustScore,
+		EventType:    ledger.EventTypeClaim,
+		ReasonCode:   reasonCode,
+	})
 
 	json.NewEncoder(w).Encode(map[string]string{"status": res.Status})
 }
