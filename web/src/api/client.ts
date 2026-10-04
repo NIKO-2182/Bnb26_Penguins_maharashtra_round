@@ -82,6 +82,11 @@ export interface Metrics {
   total_seats?: number
   human_win_rate?: number
   humans_in_pool?: number
+  /** Seats actually granted, split by winner. Derived from the ledger. */
+  seats_bots?: number
+  seats_humans?: number
+  granted_seats?: number
+  sold_out_events?: number
   oversell_count?: number
   duplicate_count?: number
   trust_buckets?: number[]
@@ -111,6 +116,33 @@ export interface ResultRun {
   seats_humans?: number
   total_seats?: number
   finished_at?: string
+
+  // Measured by the API from the hash-chained ledger. These replaced a
+  // hardcoded fixture, so the values are real observations per run.
+  bot_advantage_ratio?: number
+  humans_in_pool?: number
+  bots_in_pool?: number
+  precision?: number
+  recall?: number
+  oversell_count?: number
+  duplicate_count?: number
+  events_scanned?: number
+  humans_denied?: number
+  humans_lost_to_sold_out?: number
+  bots_denied?: number
+  attempts_limit_hit?: number
+}
+
+/** Full /results envelope: the runs plus chain-verification metadata. */
+export interface ResultsResponse {
+  runs: ResultRun[]
+  measured: boolean
+  chain_ok: boolean
+  chain_checked: number
+  chain_head?: string
+  chain_error?: string
+  total_seats: number
+  current_mode: Mode
 }
 
 export interface PowChallenge {
@@ -136,7 +168,39 @@ export interface SessionRaw {
 export const getHealth = () => api<unknown>("/health")
 export const getMetrics = () => api<Metrics>("/metrics")
 export const getLedger = (limit = 50) => api<LedgerEvent[]>(`/ledger?limit=${limit}`)
-export const getResults = () => api<ResultRun[]>("/results")
+
+/**
+ * Ledger events that reached an actual system decision.
+ *
+ * The raw ledger is ~94% "sold_out" tail arriving after the pool closed, so any
+ * newest-N window shows only that tail. This asks the server to filter, which
+ * is the only way to see the events that reached a decision.
+ */
+export const getDecidedLedger = (limit = 400) =>
+  api<LedgerEvent[]>(`/ledger?limit=${limit}&decided=1`)
+
+// /results returns an envelope { runs, chain_ok, ... }, but every consumer
+// (ModeCompare, AttackLevelChart, lib/results.ts) expects a plain array and
+// calls .forEach/.map on it. Unwrapping here keeps the chain metadata available
+// on the envelope while guaranteeing consumers always receive an array -- the
+// mismatch previously threw and unmounted the whole Operator page.
+export async function getResults(): Promise<ResultRun[]> {
+  const body = await api<ResultsResponse | ResultRun[]>("/results")
+  if (Array.isArray(body)) return body
+  return Array.isArray(body?.runs) ? body.runs : []
+}
+
+/** Chain verification for the latest run, for an integrity panel. */
+export async function getChainStatus() {
+  const body = await api<ResultsResponse | ResultRun[]>("/results")
+  if (Array.isArray(body)) return null
+  return {
+    ok: body.chain_ok,
+    checked: body.chain_checked,
+    head: body.chain_head,
+    error: body.chain_error,
+  }
+}
 
 export const join = () => api<JoinResponse>("/join", { method: "POST", body: "{}" })
 export const verify = (token: string, nonce: string) =>

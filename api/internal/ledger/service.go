@@ -42,3 +42,14 @@ func (s *Service) Record(ctx context.Context, userID string, eventType string, r
 func (s *Service) GetRecent(ctx context.Context, limit int64) ([]Event, error) {
 	return s.store.GetRecentEvents(ctx, limit)
 }
+
+// GetAll returns every ledger event in chronological order, used by the
+// fairness computation which must see the whole run rather than a head window.
+func (s *Service) GetAll(ctx context.Context) ([]Event, error) {
+	return s.store.GetAllEvents(ctx)
+}
+
+// VerifyChain walks the hash chain and reports the first break.
+func (s *Service) VerifyChain(ctx context.Context, limit int64) (ChainVerification, error) {
+	return s.store.VerifyChain(ctx, limit)
+}

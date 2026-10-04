@@ -17,6 +17,8 @@ import { LedgerTable } from "@/components/LedgerTable"
 import { SimPanel, SimRunButton } from "@/components/SimControls"
 import { ConfigEditor, ModeSwitch, ResetButton } from "@/components/AdminControls"
 import { ConfusionMatrixPanel } from "@/components/ConfusionMatrixPanel"
+import { SeatGauge } from "@/components/SeatGauge"
+import { AttackSwarm } from "@/components/AttackSwarm"
 import { useMetrics } from "@/hooks/useMetrics"
 import { cn } from "@/lib/utils"
 
@@ -89,6 +91,8 @@ export default function Operator() {
           <LiveCounters />
           <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_26rem]">
             <div className="flex min-w-0 flex-col gap-3">
+              <SeatGauge />
+              <AttackSwarm />
               <ConfusionMatrixPanel metrics={metrics} />
               <div className="grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
                 <HeroStat />

@@ -10,6 +10,7 @@ package handlers
 import (
 	"encoding/json"
 	"fairdrop/api/internal/abuse"
+	"fairdrop/api/internal/config"
 	"fairdrop/api/internal/session"
 	"fairdrop/api/internal/store"
 	"net/http"
@@ -18,10 +19,11 @@ import (
 type VerifyHandler struct {
 	mgr *session.Manager
 	rdb *store.RedisClient
+	cfg *config.Config
 }
 
-func NewVerifyHandler(mgr *session.Manager, rdb *store.RedisClient) *VerifyHandler {
-	return &VerifyHandler{mgr: mgr, rdb: rdb}
+func NewVerifyHandler(mgr *session.Manager, rdb *store.RedisClient, cfg *config.Config) *VerifyHandler {
+	return &VerifyHandler{mgr: mgr, rdb: rdb, cfg: cfg}
 }
 
 func (h *VerifyHandler) HandleVerify(w http.ResponseWriter, req *http.Request) {
@@ -53,15 +55,34 @@ func (h *VerifyHandler) HandleVerify(w http.ResponseWriter, req *http.Request) {
 	ip := extractIP(req)
 	subnet := abuse.GetSubnet(ip)
 
-	err := h.mgr.Verify(req.Context(), tok, sol, ip, subnet)
+	// Record the arrival BEFORE evaluating trust. Previously signals were only
+	// recorded on /claim, which happens after the score is already fixed -- so
+	// the variance and burst checks always saw GapCount==0 and never fired.
+	// Recording here gives the trust pass a real timeline to inspect.
+	trustMgr := abuse.NewTrustManager(h.rdb, h.cfg)
+	trustMgr.RecordRequestSignal(req.Context(), tok, ip, subnet)
+
+	sess, err := session.GetSession(req.Context(), h.rdb, tok)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
+	trustScore, sigs, err := h.mgr.VerifyDetailed(req.Context(), tok, sol, ip, subnet)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Persist the behavioural feature vector. Previously these signals were
+	// computed inside EvaluateSessionTrust, reduced to a scalar, and discarded,
+	// so no training data existed for offline analysis.
+	trustMgr.RecordFeatures(req.Context(), tok, sess.UserID, ip, subnet, "verify", trustScore, sigs)
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
+	json.NewEncoder(w).Encode(map[string]any{
 		"status": "verified",
 		"state":  "verified",
+		"trust":  trustScore,
 	})
 }

@@ -32,12 +32,21 @@ export function OutcomeChart() {
   }, [resetEpoch])
 
   useEffect(() => {
-    if (!data || data.total_seats == null || data.bot_share == null) return
+    if (!data || data.total_seats == null) return
     const won = Math.max(0, data.total_seats - data.seats_left)
-    const bots = Math.round(won * data.bot_share)
+    // Prefer the API's real per-winner split. Falling back to won*bot_share
+    // invents the breakdown, which is the thing this chart is supposed to show.
+    const bots = data.seats_bots != null ? data.seats_bots : Math.round(won * (data.bot_share ?? 0))
+    const humans = data.seats_humans != null ? data.seats_humans : Math.max(0, won - bots)
     startRef.current ??= dataUpdatedAt
     const t = Math.round((dataUpdatedAt - startRef.current) / 1000)
-    setSeries((s) => [...s, { t, bots, humans: won - bots }].slice(-MAX_POINTS))
+    setSeries((s) => {
+      const last = s[s.length - 1]
+      // Seats are monotonic, so repeated identical polls add nothing; skip them
+      // instead of piling up thousands of duplicate points.
+      if (last && last.bots === bots && last.humans === humans) return s
+      return [...s, { t, bots, humans }].slice(-MAX_POINTS)
+    })
   }, [dataUpdatedAt, data])
 
   let content

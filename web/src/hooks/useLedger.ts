@@ -16,7 +16,8 @@ function toMillis(ts: string | number): number {
   return Number.isNaN(n) ? 0 : n
 }
 
-function keyEvents(events: LedgerEvent[]): KeyedEvent[] {
+/** Stable per-event keys. Exported so other panels can reuse the same ordering. */
+export function keyEvents(events: LedgerEvent[]): KeyedEvent[] {
   const seen = new Map<string, number>()
   return [...events]
     .sort((a, b) => toMillis(b.timestamp) - toMillis(a.timestamp))

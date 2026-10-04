@@ -70,7 +70,33 @@ func (h *ClaimHandler) HandleClaim(w http.ResponseWriter, req *http.Request) {
 
 	userID, err := session.VerifyToken(body.ClaimToken, h.cfg.HMACSecret)
 	if err != nil {
-		userID = body.ClaimToken
+		// Not a legacy userID:signature token. It may be an admission ticket.
+		// Distinguish the two by SHAPE first: tickets are pipe-delimited with a
+		// queue position, legacy tokens are colon-delimited. Without this, a
+		// perfectly valid legacy token would be parsed as a malformed ticket
+		// and rejected as forged.
+		if strings.Contains(body.ClaimToken, "|") {
+			tk, perr := session.ParseTicket(body.ClaimToken)
+			if perr == nil {
+				if verr := tk.Verify(h.cfg.HMACSecret); verr != nil {
+					// Edited queue position or swapped identity: forged.
+					h.ledger.RecordEvent(req.Context(), ledger.Event{
+						UserID:     tk.UserID,
+						EventType:  ledger.EventTypeClaim,
+						ReasonCode: ledger.ReasonRejectedTicketInvalid,
+						Metadata:   map[string]any{"claimed_seq": tk.Seq},
+					})
+					http.Error(w, "invalid admission ticket", http.StatusUnauthorized)
+					return
+				}
+				userID = tk.UserID
+			} else {
+				http.Error(w, "malformed admission ticket", http.StatusBadRequest)
+				return
+			}
+		} else {
+			userID = body.ClaimToken
+		}
 	}
 
 	mode, _ := h.rdb.Client.Get(req.Context(), "admin:mode").Result()
@@ -90,6 +116,12 @@ func (h *ClaimHandler) HandleClaim(w http.ResponseWriter, req *http.Request) {
 		trustScore = 1.0
 	}
 
+	// FCFS is the control arm and must stay a pure "no fairness layer"
+	// baseline, so all anti-abuse ceilings are disabled in that mode. Otherwise
+	// the fcfs control would inherit the very protections it exists to measure
+	// against, and the A/B would be meaningless.
+	fairMode := mode != "fcfs"
+
 	// Check Cooldown soft penalty
 	if h.rateLimiter.CheckCooldown(req.Context(), userID) {
 		h.ledger.RecordEvent(req.Context(), ledger.Event{
@@ -108,13 +140,20 @@ func (h *ClaimHandler) HandleClaim(w http.ResponseWriter, req *http.Request) {
 	}
 
 	randomVal := rand.Float64()
-	res, err := allocator.ClaimSeat(req.Context(), h.rdb, body.ClaimToken, trustScore, randomVal)
+	res, attempt, err := allocator.ClaimSeat(req.Context(), h.rdb, body.ClaimToken, trustScore, randomVal, ip, fairMode)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	reasonCode := res.Status
+
+	// Record the claim-time feature row. By now the behavioural picture has
+	// changed since verify (retry gaps, IP/subnet pressure), so this is a
+	// genuinely different observation of the same session rather than a copy.
+	claimSigs := h.trust.ExtractNow(req.Context(), body.ClaimToken, ip, subnet, 0)
+	h.trust.RecordFeatures(req.Context(), body.ClaimToken, userID, ip, subnet, "claim", trustScore, claimSigs)
+
 	h.ledger.RecordEvent(req.Context(), ledger.Event{
 		UserID:       userID,
 		UserType:     userType,
@@ -125,10 +164,57 @@ func (h *ClaimHandler) HandleClaim(w http.ResponseWriter, req *http.Request) {
 		EventType:    ledger.EventTypeClaim,
 		ReasonCode:   reasonCode,
 		Metadata: map[string]any{
-			"trust_score": trustScore,
-			"ip_count":    h.trust.GetIPCount(req.Context(), ip),
+			"trust_score":  trustScore,
+			"ip_count":     h.trust.GetIPCount(req.Context(), ip),
+			"attempt":      attempt,
+			"mode":         mode,
+			"max_attempts": allocator.MaxDrawAttempts,
+			// Signal vector inlined alongside the decision, so the ledger alone
+			// is enough to explain or re-train the scorer offline.
+			"gap_count":            claimSigs.GapCount,
+			"timing_variance":      claimSigs.TimingVariance,
+			"burst_count":          claimSigs.BurstCount,
+			"request_count":        claimSigs.RequestCount,
+			"mean_gap_ms":          claimSigs.MeanGapMs,
+			"min_gap_ms":           claimSigs.MinGapMs,
+			"max_gap_ms":           claimSigs.MaxGapMs,
+			"gap_stddev_ms":        claimSigs.GapStdDevMs,
+			"cv":                   claimSigs.CV,
+			"burst_ratio":          claimSigs.BurstRatio,
+			"gaps_per_second":      claimSigs.GapsPerSecond,
+			"subnet_session_count": claimSigs.SubnetSessionCount,
 		},
 	})
+
+	// Idempotency: if this session already holds a seat, return that same
+	// allocation instead of a bare "duplicate_claim". A client whose connection
+	// dropped must be able to safely retry and learn its outcome, otherwise it
+	// cannot tell "I already won" from "I lost".
+	if res.Status == ledger.ReasonDuplicateClaim {
+		resp := map[string]any{
+			"status":      ledger.ReasonDuplicateClaim,
+			"already_won": true,
+			"idempotent":  true,
+		}
+		// Only echo identity back from a ticket whose signature verifies;
+		// otherwise a forged token could make the server confirm someone
+		// else's allocation.
+		if ticket, perr := session.ParseTicket(body.ClaimToken); perr == nil {
+			if verr := ticket.Verify(h.cfg.HMACSecret); verr == nil {
+				resp["user_id"] = ticket.UserID
+				resp["queue_position"] = ticket.Seq
+				resp["ticket_valid"] = true
+			} else {
+				resp["ticket_valid"] = false
+			}
+		}
+		if sess, serr := session.GetSession(req.Context(), h.rdb, body.ClaimToken); serr == nil {
+			resp["trust"] = sess.Trust
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+		return
+	}
 
 	json.NewEncoder(w).Encode(map[string]string{"status": res.Status})
 }

@@ -34,7 +34,7 @@ func (h *JoinHandler) HandleJoin(w http.ResponseWriter, req *http.Request) {
 		body.Username = "user_anon"
 	}
 
-	token, err := h.mgr.Join(req.Context(), body.Username)
+	token, ticket, err := h.mgr.JoinWithTicket(req.Context(), body.Username)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -44,8 +44,12 @@ func (h *JoinHandler) HandleJoin(w http.ResponseWriter, req *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"token":         token,
 		"session_token": token,
-		"challenge":     "solve_me",
-		"pow_challenge": "solve_me",
-		"difficulty":    4,
+		// Signed admission ticket carrying the queue position.
+		"ticket":         ticket.Encode(),
+		"queue_position": ticket.Seq,
+		"admitted_at":    ticket.JoinedUnix,
+		"challenge":      "solve_me",
+		"pow_challenge":  "solve_me",
+		"difficulty":     4,
 	})
 }

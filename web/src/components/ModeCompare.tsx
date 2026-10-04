@@ -11,11 +11,16 @@ import { fmtInt, fmtPct } from "@/lib/utils"
 
 const ROWS: { label: string; get: (r: ResultRun) => string; hero?: boolean }[] = [
   { label: "Bot share of seats", get: (r) => fmtPct(r.bot_share), hero: true },
+  // The headline fairness number: 1.0 means a bot is no likelier to win than a
+  // human. Below 1.0 is not automatically good -- it can mean humans are being
+  // over-rejected -- so it is shown alongside the rejection rate.
+  { label: "Bot advantage ratio", get: (r) => (r.bot_advantage_ratio == null ? "—" : r.bot_advantage_ratio.toFixed(3)), hero: true },
   { label: "Human win rate", get: (r) => fmtPct(r.human_win_rate) },
   { label: "Human false rejections", get: (r) => fmtPct(r.human_false_rejection_rate) },
+  { label: "Humans denied", get: (r) => fmtInt(r.humans_denied) },
   { label: "Seats to bots", get: (r) => fmtInt(r.seats_bots) },
   { label: "Seats to humans", get: (r) => fmtInt(r.seats_humans) },
-  { label: "Attack intensity", get: (r) => `${r.intensity}×` },
+  { label: "Oversell / duplicates", get: (r) => `${fmtInt(r.oversell_count)} / ${fmtInt(r.duplicate_count)}` },
 ]
 
 export function ModeCompare() {

@@ -23,6 +23,22 @@ type Signals struct {
 	BurstCount         int     `json:"burst_count"`
 	IPSessionCount     int64   `json:"ip_session_count"`
 	SubnetSessionCount int64   `json:"subnet_session_count"`
+
+	// Derived features persisted alongside the raw signals. These are the ones
+	// a classifier can actually act on: the raw counters are mostly zero for
+	// single-shot clients, whereas normalised shapes separate a human from a
+	// scripted client even when both only ever make a few requests.
+	RequestCount     int     `json:"request_count"`
+	MeanGapMs        float64 `json:"mean_gap_ms"`
+	MinGapMs         float64 `json:"min_gap_ms"`
+	MaxGapMs         float64 `json:"max_gap_ms"`
+	GapStdDevMs      float64 `json:"gap_stddev_ms"`
+	CV               float64 `json:"cv"`                // coefficient of variation: machine regularity
+	BurstRatio       float64 `json:"burst_ratio"`        // fraction of gaps under 100ms
+	GapsPerSecond    float64 `json:"gaps_per_second"`    // request velocity
+	SessionAgeMs     int64   `json:"session_age_ms"`     // time since first signal
+	IPsPerSubnet     int     `json:"ips_per_subnet"`     // IP diversity inside one subnet
+	SubnetDistinctIP int64   `json:"subnet_distinct_ip"` // total volume behind the subnet
 }
 
 type SignalExtractor struct {
@@ -87,12 +103,60 @@ func (s *SignalExtractor) Extract(ctx context.Context, token, ip, subnet string,
 	ipCount, _ := s.rdb.Client.Get(ctx, "sig:ip:"+ip).Int64()
 	subnetCount, _ := s.rdb.Client.Get(ctx, "sig:subnet:"+subnet).Int64()
 
-	return Signals{
+	sigs := Signals{
 		SolveTimeMs:        solveTimeMs,
 		TimingVariance:     variance,
 		GapCount:           len(gaps),
 		BurstCount:         burstCount,
 		IPSessionCount:     ipCount,
 		SubnetSessionCount: subnetCount,
+		RequestCount:       len(rawTs),
+		SubnetDistinctIP:   subnetCount,
 	}
+
+	// Derived shape features. Computed from the same gap list, so they add no
+	// extra Redis round-trips.
+	if len(gaps) > 0 {
+		var sum, minG, maxG float64 = 0, gaps[0], gaps[0]
+		minG, maxG = gaps[0], gaps[0]
+		for _, g := range gaps {
+			sum += g
+			if g < minG {
+				minG = g
+			}
+			if g > maxG {
+				maxG = g
+			}
+		}
+		mean := sum / float64(len(gaps))
+		sigs.MeanGapMs = mean
+		sigs.MinGapMs = minG
+		sigs.MaxGapMs = maxG
+		sigs.BurstRatio = float64(burstCount) / float64(len(gaps))
+
+		var sq float64
+		for _, g := range gaps {
+			sq += (g - mean) * (g - mean)
+		}
+		std := math.Sqrt(sq / float64(len(gaps)))
+		sigs.GapStdDevMs = std
+		// Coefficient of variation: near 0 means metronomic automation, high
+		// means human jitter. This is the single most useful discriminator and
+		// it only becomes meaningful once more than one request is recorded.
+		if mean > 0 {
+			sigs.CV = std / mean
+		}
+
+		if len(rawTs) >= 2 {
+			t1, _ := strconv.ParseFloat(rawTs[0], 64)
+			t2, _ := strconv.ParseFloat(rawTs[len(rawTs)-1], 64)
+			if t2 > t1 {
+				secs := (t2 - t1) / 1000.0
+				sigs.GapsPerSecond = float64(len(gaps)) / secs
+				sigs.SessionAgeMs = int64(t2 - t1)
+			}
+		}
+	}
+
+	return sigs
 }

@@ -61,22 +61,53 @@ func (s *Service) GetMetrics(ctx context.Context) (map[string]any, error) {
 		mode = "fair"
 	}
 
-	events, _ := s.ledger.GetRecent(ctx, 5000)
+	// Scan the WHOLE ledger, not a fixed head window. The list is LPUSH'd, so
+	// LRANGE 0 N-1 returns the N newest events; during a flash sale the newest
+	// events are all "sold_out" tail traffic, which previously made the
+	// confusion matrix collapse to all zeros. Fall back to a sane cap only if
+	// the list is genuinely enormous.
+	const hardScanCap = 200000
+	scanLen, _ := s.rdb.Client.LLen(ctx, "ledger:events").Result()
+	scanLimit := scanLen
+	if scanLimit > hardScanCap {
+		scanLimit = hardScanCap
+	}
+
+	var events []ledger.Event
+	if scanLimit > 0 {
+		events, _ = s.ledger.GetRecent(ctx, scanLimit)
+	}
 
 	var tp, fp, fn, tn int64
+	var granted, duplicate, soldOut int64
+	var seatsBots, seatsHumans int64
+	grantedUsers := make(map[string]struct{})
 	byReason := make(map[string]int64)
 	byProfile := make(map[string]int64)
 
 	for _, ev := range events {
-		isRejected := (ev.ReasonCode == ledger.ReasonRejectedLowTrust ||
-			ev.ReasonCode == ledger.ReasonRejectedRateLimitIp ||
-			ev.ReasonCode == ledger.ReasonRejectedRateLimitTk ||
-			ev.ReasonCode == ledger.ReasonRejectedRateLimitCooldown ||
-			ev.ReasonCode == ledger.ReasonRejectedSubnetLimit ||
-			ev.ReasonCode == ledger.ReasonRejectedPoWInvalid ||
-			ev.ReasonCode == ledger.ReasonRejectedPoWTooFast)
+		isRejected := isRejectionCode(ev.ReasonCode)
+		isGranted := (ev.ReasonCode == ledger.ReasonSeatGranted || ev.ReasonCode == ledger.ReasonAcceptedPool)
 
-		isGranted := (ev.ReasonCode == ledger.ReasonSeatGranted)
+		switch ev.ReasonCode {
+		case ledger.ReasonDuplicateClaim:
+			duplicate++
+		case ledger.ReasonSoldOut, ledger.ReasonNotSelectedDraw:
+			soldOut++
+		}
+
+		if isGranted {
+			granted++
+			grantedUsers[ev.UserID] = struct{}{}
+			// Split the pool by winner so the UI can draw an allocation gauge
+			// instead of inferring the split from bot_share.
+			switch ev.UserType {
+			case "bot":
+				seatsBots++
+			case "human":
+				seatsHumans++
+			}
+		}
 
 		if ev.UserType == "bot" {
 			if isRejected {
@@ -85,7 +116,7 @@ func (s *Service) GetMetrics(ctx context.Context) (map[string]any, error) {
 				fn++
 			}
 		} else if ev.UserType == "human" {
-			if isGranted || ev.ReasonCode == ledger.ReasonAcceptedPool {
+			if isGranted {
 				tn++
 			} else if isRejected {
 				fp++
@@ -97,6 +128,22 @@ func (s *Service) GetMetrics(ctx context.Context) (map[string]any, error) {
 				}
 			}
 		}
+	}
+
+	// Invariants measured from the ledger, not hardcoded. A seat is oversold if
+	// more seats were granted than the pool held; it is duplicated if the same
+	// user id was granted more than once.
+	oversell := granted - int64(totalSeats)
+	if oversell < 0 {
+		oversell = 0
+	}
+	// Duplicate GRANT detection: the same user winning more than once. A
+	// duplicate_claim event is NOT a violation -- it is a client safely
+	// retrying, and idempotency means those are expected. Only two
+	// seat_granted events for one user is an actual integrity failure.
+	duplicateCount := granted - int64(len(grantedUsers))
+	if duplicateCount < 0 {
+		duplicateCount = 0
 	}
 
 	precision := 0.0
@@ -141,8 +188,13 @@ func (s *Service) GetMetrics(ctx context.Context) (map[string]any, error) {
 		"bot_share":                  botShare,
 		"human_win_rate":             humanWinRate,
 		"humans_in_pool":             humansInPool,
-		"oversell_count":             0,
-		"duplicate_count":            0,
+		"oversell_count":             oversell,
+		"duplicate_count":            duplicateCount,
+		"granted_seats":              granted,
+		"seats_bots":                 seatsBots,
+		"seats_humans":               seatsHumans,
+		"sold_out_events":            soldOut,
+		"ledger_events_scanned":      len(events),
 		"mode":                       mode,
 		"by_reason":                  byReason,
 		"by_profile":                 byProfile,

@@ -11,7 +11,9 @@ package control
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -22,6 +24,7 @@ import (
 
 type Server struct {
 	baseURL    string
+	adminURL   string
 	mu         sync.RWMutex
 	isRunning  bool
 	cancelFn   context.CancelFunc
@@ -30,8 +33,61 @@ type Server struct {
 
 func NewServer(baseURL string) *Server {
 	return &Server{
-		baseURL: baseURL,
+		baseURL:  baseURL,
+		adminURL: baseURL,
 	}
+}
+
+// setAPIMode asks the API to switch allocation mode before the run starts.
+//
+// The run body's "mode" used to be a LABEL ONLY: it was copied into the report
+// and never reached the allocator, so the API stayed in whatever mode it was
+// last put into. The result was the dashboard showing two different modes at
+// once -- /metrics reading admin:mode while /results showed the sim's label --
+// which made an ablation look like it had measured something it had not.
+//
+// The API is now the single source of truth: the sim sets it, and the report
+// reflects what the API actually did.
+func (s *Server) setAPIMode(ctx context.Context, mode string) error {
+	payload := strings.NewReader(fmt.Sprintf(`{"mode":%q}`, mode))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.adminURL+"/admin/mode", payload)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("admin/mode returned %d", resp.StatusCode)
+	}
+	return nil
+}
+
+// fetchAPIMode reads back the mode the API actually has active, so the report
+// can record observed truth rather than what we asked for.
+func (s *Server) fetchAPIMode(ctx context.Context) string {
+	client := &http.Client{Timeout: 5 * time.Second}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.adminURL+"/metrics", nil)
+	if err != nil {
+		return ""
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	var m struct {
+		Mode string `json:"mode"`
+	}
+	if json.NewDecoder(resp.Body).Decode(&m) != nil {
+		return ""
+	}
+	return m.Mode
 }
 
 func (s *Server) Start(addr string) error {
@@ -150,6 +206,15 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 		humans = 50
 	}
 
+	// Switch the API into the requested mode BEFORE any traffic starts. Doing it
+	// here rather than relying on the caller means a run's mode is always the
+	// mode the allocator actually used.
+	if err := s.setAPIMode(r.Context(), mode); err != nil {
+		s.mu.Unlock()
+		http.Error(w, "could not set API mode: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	s.cancelFn = cancel
 	s.isRunning = true
@@ -176,6 +241,12 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 
 		rep := rnr.RunScenario(ctx)
 
+		// Record what the API actually reports, so the report cannot claim a mode
+		// the allocator did not use.
+		if observed := s.fetchAPIMode(context.Background()); observed != "" {
+			rep.Mode = observed
+		}
+
 		s.mu.Lock()
 		s.lastReport = rep
 		s.mu.Unlock()
@@ -183,11 +254,12 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"status":   "started",
-		"scenario": scenarioName,
-		"mode":     mode,
-		"seats":    seats,
-		"bots":     bots,
-		"humans":   humans,
+		"status":       "started",
+		"scenario":     scenarioName,
+		"mode":         mode,
+		"mode_applied": true,
+		"seats":        seats,
+		"bots":         bots,
+		"humans":       humans,
 	})
 }

@@ -61,7 +61,12 @@ func (tm *TrustManager) RecordInteraction(ctx context.Context, userID string, su
 	}
 }
 
-func (tm *TrustManager) EvaluateSessionTrust(ctx context.Context, token, ip, subnet string, solveTimeMs int64) float64 {
+// EvaluateSessionTrust scores a session AND returns the raw signal vector it
+// scored from. The signals used to be computed, consumed, and discarded, which
+// meant the ledger recorded only the resulting scalar -- leaving no feature
+// matrix for offline analysis or a future classifier. Callers must persist the
+// returned Signals; the score alone is not enough to explain or audit a decision.
+func (tm *TrustManager) EvaluateSessionTrust(ctx context.Context, token, ip, subnet string, solveTimeMs int64) (float64, Signals) {
 	sigs := tm.extractor.Extract(ctx, token, ip, subnet, solveTimeMs)
 
 	// Base score starts high for PoW-verified sessions
@@ -115,7 +120,7 @@ func (tm *TrustManager) EvaluateSessionTrust(ctx context.Context, token, ip, sub
 	}
 
 	tm.SetTrustScore(ctx, token, score)
-	return score
+	return score, sigs
 }
 
 func (tm *TrustManager) RecordRequestSignal(ctx context.Context, token, ip, subnet string) {
