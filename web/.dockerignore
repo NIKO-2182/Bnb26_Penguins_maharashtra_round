@@ -1,0 +1,11 @@
+# FILE: web/.dockerignore
+# PURPOSE: Prevent host node_modules and build artifacts from leaking into docker build
+# INPUTS / OUTPUTS: N/A
+# DEPENDS ON: N/A
+# USED BY: Docker
+# RULES: Keep node_modules excluded so container installs native bindings
+# DO NOT: Remove node_modules exclusion
+
+node_modules
+dist
+.git

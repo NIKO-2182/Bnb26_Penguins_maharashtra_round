@@ -21,7 +21,7 @@ export function Panel({
   bodyClassName?: string
 }) {
   return (
-    <section className={cn("flex min-w-0 flex-col rounded-md border bg-card", className)} aria-label={title}>
+    <section className={cn("flex min-w-0 flex-col rounded-md border bg-transparent", className)} aria-label={title}>
       <header className="flex h-8 shrink-0 items-center justify-between gap-2 border-b px-3">
         <h2 className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{title}</h2>
         {actions}

@@ -24,7 +24,7 @@ const MaxDrawAttempts = 8
 // is the defence that survives session churn: a flood that mints a new token
 // per request still runs out of budget at this address. Set high enough to
 // accommodate the shared-IP human scenario (200 humans / 5 IPs).
-const MaxIPDrawAttempts = 120
+const MaxIPDrawAttempts = 600
 
 // MinTrustToDraw is the trust floor for entering the lottery at all. Below it
 // a session is refused rather than given a small chance, so a low-trust flood

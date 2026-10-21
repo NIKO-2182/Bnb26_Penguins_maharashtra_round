@@ -22,13 +22,14 @@ import (
 const QueueSeqKey = "queue:seq"
 
 type Session struct {
-	UserID    string    `json:"user_id"`
-	Status    string    `json:"status"` // joined|verified|selected|claimed|not_selected|rejected
-	State     string    `json:"state"`  // alias for status
-	Trust     float64   `json:"trust"`
-	PoWProof  string    `json:"pow_proof"`
-	QueueSeq  int64     `json:"queue_seq,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
+	UserID     string    `json:"user_id"`
+	Status     string    `json:"status"` // joined|verified|selected|claimed|not_selected|rejected
+	State      string    `json:"state"`  // alias for status
+	Trust      float64   `json:"trust"`
+	PoWProof   string    `json:"pow_proof"`
+	QueueSeq   int64     `json:"queue_seq,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+	VerifiedAt time.Time `json:"verified_at,omitempty"`
 }
 
 type Manager struct {
@@ -150,6 +151,7 @@ func (m *Manager) VerifyDetailed(ctx context.Context, token, solution, ip, subne
 	sess.Status = "verified"
 	sess.State = "verified"
 	sess.PoWProof = solution
+	sess.VerifiedAt = time.Now()
 
 	trustScore, sigs := m.trust.EvaluateSessionTrust(ctx, token, ip, subnet, solveTimeMs)
 	sess.Trust = trustScore

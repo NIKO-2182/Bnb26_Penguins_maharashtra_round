@@ -3,7 +3,7 @@
  * Purpose: Typed wrappers for the simulator control service (sim:8090),
  *          reached through the /sim proxy.
  */
-import { request } from "./client"
+import { request, type Mode } from "./client"
 
 const SIM_BASE = import.meta.env.VITE_SIM_BASE ?? "/sim"
 
@@ -17,6 +17,7 @@ export interface SimConfig {
   ip_spread: number
   profile: BotProfile
   humans: number
+  mode?: Mode
 }
 
 export interface SimStatus {

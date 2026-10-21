@@ -179,7 +179,20 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 
 	mode := reqBody.Mode
 	if mode == "" {
-		mode = "fair"
+		if observed := s.fetchAPIMode(r.Context()); observed != "" {
+			mode = observed
+		} else {
+			mode = "fair"
+		}
+	} else {
+		// Switch the API into the requested mode BEFORE any traffic starts. Doing it
+		// here rather than relying on the caller means a run's mode is always the
+		// mode the allocator actually used.
+		if err := s.setAPIMode(r.Context(), mode); err != nil {
+			s.mu.Unlock()
+			http.Error(w, "could not set API mode: "+err.Error(), http.StatusBadGateway)
+			return
+		}
 	}
 
 	seats := reqBody.Seats
@@ -204,15 +217,6 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	if bots == 0 && humans == 0 {
 		bots = 200
 		humans = 50
-	}
-
-	// Switch the API into the requested mode BEFORE any traffic starts. Doing it
-	// here rather than relying on the caller means a run's mode is always the
-	// mode the allocator actually used.
-	if err := s.setAPIMode(r.Context(), mode); err != nil {
-		s.mu.Unlock()
-		http.Error(w, "could not set API mode: "+err.Error(), http.StatusBadGateway)
-		return
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)

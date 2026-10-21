@@ -10,11 +10,15 @@ package metrics
 import (
 	"context"
 	"fairdrop/api/internal/ledger"
+	"math"
+	"time"
 )
 
 // RunSummary is one measured run's outcome, computed from the ledger.
 type RunSummary struct {
 	Mode           string  `json:"mode"`
+	Intensity      float64 `json:"intensity"`
+	FinishedAt     string  `json:"finished_at,omitempty"`
 	Seats          int     `json:"seats"`
 	SeatsHumans    int     `json:"seats_humans"`
 	SeatsBots      int     `json:"seats_bots"`
@@ -154,6 +158,16 @@ func ComputeRunSummary(ctx context.Context, ls *ledger.Service, totalSeats int) 
 		sum.Recall = float64(tp) / float64(tp+fn)
 	}
 	sum.BotAdvantageRatio = AdvantageRatio(sum.BotsInPool, sum.SeatsBots, sum.HumansInPool, sum.SeatsHumans)
+
+	if sum.HumansInPool > 0 && sum.BotsInPool > 0 {
+		ratio := float64(sum.BotsInPool) / float64(sum.HumansInPool)
+		sum.Intensity = math.Round(ratio*10) / 10
+	} else if sum.BotsInPool > 0 {
+		sum.Intensity = 1.0
+	} else {
+		sum.Intensity = 0.0
+	}
+	sum.FinishedAt = time.Now().UTC().Format(time.RFC3339)
 
 	return sum, nil
 }

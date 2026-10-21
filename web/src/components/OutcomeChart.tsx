@@ -39,12 +39,19 @@ export function OutcomeChart() {
     const bots = data.seats_bots != null ? data.seats_bots : Math.round(won * (data.bot_share ?? 0))
     const humans = data.seats_humans != null ? data.seats_humans : Math.max(0, won - bots)
     startRef.current ??= dataUpdatedAt
-    const t = Math.round((dataUpdatedAt - startRef.current) / 1000)
+    const t = Math.max(0, Math.round((dataUpdatedAt - startRef.current) / 1000))
     setSeries((s) => {
+      if (s.length === 0) {
+        return [{ t: 0, bots, humans }]
+      }
       const last = s[s.length - 1]
-      // Seats are monotonic, so repeated identical polls add nothing; skip them
-      // instead of piling up thousands of duplicate points.
-      if (last && last.bots === bots && last.humans === humans) return s
+      if (last.t === t && last.bots === bots && last.humans === humans) return s
+      if (last.bots === bots && last.humans === humans) {
+        // Extend the current state to current time so the timeline advances smoothly
+        if (s.length >= 2 && s[s.length - 2].bots === bots && s[s.length - 2].humans === humans) {
+          return [...s.slice(0, -1), { t, bots, humans }]
+        }
+      }
       return [...s, { t, bots, humans }].slice(-MAX_POINTS)
     })
   }, [dataUpdatedAt, data])
@@ -59,9 +66,16 @@ export function OutcomeChart() {
       <ResponsiveContainer width="100%" height="100%">
         <AreaChart data={series} margin={{ top: 4, right: 4, bottom: 0, left: -12 }}>
           <CartesianGrid {...gridProps} />
-          <XAxis dataKey="t" {...axisProps} tickFormatter={(v) => `${v}s`} minTickGap={32} />
+          <XAxis
+            dataKey="t"
+            type="number"
+            domain={[0, (max: number) => Math.max(max, 10)]}
+            {...axisProps}
+            tickFormatter={(v) => `${Math.round(v)}s`}
+            minTickGap={28}
+          />
           <YAxis {...axisProps} tickFormatter={fmtInt} allowDecimals={false} />
-          <Tooltip {...tooltipProps} labelFormatter={(v) => `t = ${v}s`} formatter={(v) => fmtInt(Number(v))} />
+          <Tooltip {...tooltipProps} labelFormatter={(v) => `t = ${Math.round(Number(v))}s`} formatter={(v) => fmtInt(Number(v))} />
           <Area
             type="stepAfter"
             dataKey="humans"

@@ -18,6 +18,7 @@ import (
 	"math/rand"
 	"net/http"
 	"strings"
+	"time"
 )
 
 type ClaimHandler struct {
@@ -111,8 +112,24 @@ func (h *ClaimHandler) HandleClaim(w http.ResponseWriter, req *http.Request) {
 		trustScore = h.trust.GetTrustScore(req.Context(), userID)
 	}
 
-	// In FCFS mode, bypass trust scoring
-	if mode == "fcfs" {
+	// In fair mode, dynamically evaluate claim-time trust using both PoW solve time
+	// and human think-time (click delay between verification and claim).
+	if mode != "fcfs" {
+		sess, sessErr := session.GetSession(req.Context(), h.rdb, body.ClaimToken)
+		solveTimeMs := int64(0)
+		clickDelayMs := int64(0)
+		if sessErr == nil && sess != nil {
+			if !sess.CreatedAt.IsZero() && !sess.VerifiedAt.IsZero() {
+				solveTimeMs = sess.VerifiedAt.Sub(sess.CreatedAt).Milliseconds()
+				clickDelayMs = time.Since(sess.VerifiedAt).Milliseconds()
+			} else if !sess.CreatedAt.IsZero() {
+				solveTimeMs = time.Since(sess.CreatedAt).Milliseconds()
+			}
+		}
+		evaluated, _ := h.trust.EvaluateClaimTrust(req.Context(), body.ClaimToken, ip, subnet, solveTimeMs, clickDelayMs)
+		trustScore = evaluated
+	} else {
+		// In FCFS mode, bypass trust scoring
 		trustScore = 1.0
 	}
 

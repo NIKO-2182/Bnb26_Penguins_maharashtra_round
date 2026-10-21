@@ -1,0 +1,24 @@
+/* Skeuomorphic dashboard theme for FairDrop Operator */
+body { background: #e6e0d6; color: #2a2723; }
+.skeuo-card {
+  background: linear-gradient(180deg, #f4f0eb 0%, #e8e2d8 100%);
+  border: 1px solid #cdc6ba;
+  border-radius: 16px;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.7),
+    inset 0 -1px 2px rgba(0,0,0,0.05),
+    0 4px 14px rgba(0,0,0,0.12),
+    0 2px 6px rgba(0,0,0,0.08);
+  padding: 1rem;
+}
+.skeuo-btn {
+  background: linear-gradient(180deg, #eae6df, #d6d0c8);
+  border: 1px solid #b5ada2;
+  border-radius: 12px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.6), 0 3px 6px rgba(0,0,0,0.12);
+  transition: all 0.1s ease;
+}
+.skeuo-btn:active {
+  box-shadow: inset 0 2px 4px rgba(0,0,0,0.15), 0 1px 2px rgba(0,0,0,0.1);
+  transform: translateY(1px);
+}

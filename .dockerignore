@@ -1,0 +1,12 @@
+# FILE: .dockerignore
+# PURPOSE: Prevent host node_modules, build artifacts, and git history from leaking into docker build
+# INPUTS / OUTPUTS: N/A
+# DEPENDS ON: N/A
+# USED BY: Docker
+# RULES: Keep build context minimal and clean
+# DO NOT: Remove exclusions
+
+node_modules
+web/node_modules
+web/dist
+.git

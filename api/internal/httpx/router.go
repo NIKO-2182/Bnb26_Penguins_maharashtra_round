@@ -16,6 +16,8 @@ import (
 	"fairdrop/api/internal/metrics"
 	"fairdrop/api/internal/session"
 	"fairdrop/api/internal/store"
+	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 )
@@ -101,11 +103,41 @@ func (r *Router) HandleResults(w http.ResponseWriter, req *http.Request) {
 	// /results and the simulator can never show three different answers.
 	sum.Mode = mode
 
+	// Load historical runs from Redis
+	runs := make([]metrics.RunSummary, 0)
+	hist, _ := r.rdb.Client.HGetAll(req.Context(), "results:history").Result()
+	for _, raw := range hist {
+		var past metrics.RunSummary
+		if json.Unmarshal([]byte(raw), &past) == nil {
+			runs = append(runs, past)
+		}
+	}
+
+	// If current run has events, store and update it in runs list
+	if sum.EventsScanned > 0 {
+		if b, err := json.Marshal(sum); err == nil {
+			r.rdb.Client.HSet(req.Context(), "results:history", fmt.Sprintf("%s:%.1f", sum.Mode, sum.Intensity), string(b))
+		}
+		replaced := false
+		for i, rn := range runs {
+			if rn.Mode == sum.Mode && math.Abs(rn.Intensity-sum.Intensity) < 0.05 {
+				runs[i] = sum
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			runs = append(runs, sum)
+		}
+	} else if len(runs) == 0 {
+		runs = append(runs, sum)
+	}
+
 	chain, _ := r.ledger.VerifyChain(req.Context(), 0)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
-		"runs":           []metrics.RunSummary{sum},
+		"runs":           runs,
 		"measured":       true,
 		"chain_ok":       chain.OK,
 		"chain_checked":  chain.Checked,
@@ -196,6 +228,20 @@ func (r *Router) HandleAdminReset(w http.ResponseWriter, req *http.Request) {
 	if totalSeats == 0 {
 		totalSeats = 500
 	}
+
+	mode, _ := r.rdb.Client.Get(ctx, "admin:mode").Result()
+	if mode == "" {
+		mode = "fair"
+	}
+
+	// Archive the finished run into results:history so finished runs are kept
+	if sum, err := metrics.ComputeRunSummary(ctx, r.ledger, totalSeats); err == nil && sum.EventsScanned > 0 {
+		sum.Mode = mode
+		if b, err := json.Marshal(sum); err == nil {
+			r.rdb.Client.HSet(ctx, "results:history", fmt.Sprintf("%s:%.1f", sum.Mode, sum.Intensity), string(b))
+		}
+	}
+
 	// A full reset must clear the chain head and sequence too, or the next run's
 	// first event inherits the previous run's hash and the chain no longer starts
 	// at genesis -- which is exactly what a reset needs to guarantee.

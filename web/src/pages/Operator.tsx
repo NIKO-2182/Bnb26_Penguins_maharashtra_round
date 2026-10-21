@@ -21,6 +21,7 @@ import { SeatGauge } from "@/components/SeatGauge"
 import { AttackSwarm } from "@/components/AttackSwarm"
 import { useMetrics } from "@/hooks/useMetrics"
 import { cn } from "@/lib/utils"
+import "@/styles/skeuo.css"
 
 const NAV = [
   { to: "/operator", label: "Operator", icon: Activity },
@@ -87,7 +88,7 @@ export default function Operator() {
           </div>
         </header>
 
-        <main className="flex flex-col gap-3 p-3">
+        <main className="skeuo-card flex flex-col gap-3 p-3">
           <LiveCounters />
           <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_26rem]">
             <div className="flex min-w-0 flex-col gap-3">

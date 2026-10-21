@@ -89,23 +89,27 @@ func TestTrustScoringProfiles(t *testing.T) {
 			score := 0.85
 
 			if tt.solveTimeMs > 0 {
-				if tt.solveTimeMs < 100 {
-					score -= 0.25
-				} else if tt.solveTimeMs >= 1000 && tt.solveTimeMs <= 15000 {
+				if tt.solveTimeMs < 50 {
+					score -= 0.60
+				} else if tt.solveTimeMs <= 150 {
+					score -= 0.55
+				} else if tt.solveTimeMs < 300 {
+					score -= 0.35
+				} else if tt.solveTimeMs >= 350 && tt.solveTimeMs <= 15000 {
 					score += 0.10
 				}
 			}
 
-			if tt.gapCount >= 4 {
+			if tt.gapCount >= 2 {
 				if tt.variance > 300 {
-					score += 0.10
-				} else if tt.variance < 20 {
-					score -= 0.15
+					score += 0.05
+				} else if tt.gapCount >= 4 && tt.variance < 20 {
+					score -= 0.20
 				}
 			}
 
-			if tt.burstCount > 3 && (tt.solveTimeMs < 200 || (tt.gapCount >= 4 && tt.variance < 20)) {
-				score -= 0.15
+			if tt.burstCount > 3 && (tt.solveTimeMs < 300 || (tt.gapCount >= 4 && tt.variance < 20)) {
+				score -= 0.20
 			}
 
 			if tt.ipCount > 150 {

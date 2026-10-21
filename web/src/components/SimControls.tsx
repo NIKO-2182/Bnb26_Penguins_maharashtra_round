@@ -11,7 +11,7 @@ import { Slider } from "@/components/ui/slider"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Panel, QueryError } from "@/components/Panel"
 import { BOT_PROFILES, runSim, stopSim, type BotProfile, type SimConfig, type SimStatus } from "@/api/sim"
-import { useSimStatus } from "@/hooks/useMetrics"
+import { useMetrics, useSimStatus } from "@/hooks/useMetrics"
 import { useAdminStore } from "@/store/adminStore"
 import { fmtInt } from "@/lib/utils"
 
@@ -46,6 +46,9 @@ function useSimRun() {
 
 export function SimRunButton() {
   const { status, sim, run, stop } = useSimRun()
+  const { data: metrics } = useMetrics()
+  const requested = useAdminStore((s) => s.requestedMode)
+  const currentMode = metrics?.mode ?? requested ?? "fair"
   const running = status.data?.running ?? false
   const elapsed = elapsedSeconds(status.data)
   const unreachable = status.isError
@@ -66,7 +69,7 @@ export function SimRunButton() {
       ) : (
         <Button
           size="sm"
-          onClick={() => run.mutate(sim)}
+          onClick={() => run.mutate({ ...sim, mode: currentMode })}
           disabled={run.isPending || unreachable}
           title={unreachable ? "Simulator unreachable" : undefined}
         >
